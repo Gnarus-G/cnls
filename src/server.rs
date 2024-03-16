@@ -2,8 +2,8 @@ use std::mem;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use crate::classnames::ClassNamesCollector;
-use crate::source::SrcCodeMeta;
+use crate::collect::ClassNamesCollector;
+use crate::find::SrcCodeMeta;
 use anyhow::{anyhow, Context};
 use cnls::fs;
 use cnls::scope::Scope;
@@ -293,7 +293,7 @@ impl LanguageServer for Backend {
                     )
                 })?;
 
-                let (cssfile, _) = crate::classnames::css_source_file_from(css_file)
+                let (cssfile, _) = crate::collect::css_source_file_from(css_file)
                     .context("failed to build a SourceFile from a css file")?;
 
                 let start_ln_num = cssfile.lookup_line(span.lo).ok_or(anyhow!(
