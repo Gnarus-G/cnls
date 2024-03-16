@@ -10,6 +10,7 @@ use swc_common::{BytePos, FileName, SourceFile};
 use swc_ecma_ast::{Callee, EsVersion, Expr, Ident, JSXAttrName, PropName};
 use swc_ecma_parser::{parse_file_as_module, Syntax};
 use swc_ecma_visit::{Visit, VisitWith};
+use tracing::{debug, info};
 
 struct StringsWithClassNamesFinder<'scopes> {
     cursor_position: BytePos,
@@ -102,14 +103,14 @@ impl SrcCodeMeta {
 
         let (start_pos, _) = fm.line_bounds(curr_cursor_position.line as usize);
 
-        eprintln!(
-            "[INFO] current line {} found to start on byte {}",
+        info!(
+            "current line {} found to start on byte {}",
             curr_cursor_position.line, start_pos.0
         );
 
         let cursor_position = BytePos(start_pos.0 + curr_cursor_position.character);
 
-        eprintln!("[DEBUG] resolved cursor byte pos to {}", cursor_position.0);
+        debug!("resolved cursor byte pos to {}", cursor_position.0);
 
         Ok(Self {
             path,
@@ -136,7 +137,7 @@ impl SrcCodeMeta {
         .map_err(|e| e.into_diagnostic(&error_handler).emit())
         .expect("failed to parser module");
 
-        eprintln!("[INFO] parsed source code");
+        info!("parsed source code");
 
         let mut finder = StringsWithClassNamesFinder::new(scopes, self.cursor_byte_position);
 
@@ -153,7 +154,7 @@ fn find_class_name_in_str(s: &swc_ecma_ast::Str, cursor_position: BytePos) -> Op
         return None;
     }
 
-    eprintln!("[INFO] found string around current cursor: {:?}", s.value);
+    info!("found string around current cursor: {:?}", s.value);
 
     let mut buf = String::new();
     let mut cursor_is_on_substring = false;
@@ -173,7 +174,7 @@ fn find_class_name_in_str(s: &swc_ecma_ast::Str, cursor_position: BytePos) -> Op
         }
     }
 
-    eprintln!("[INFO] resolved substring on current cursor: {:?}", buf);
+    info!("resolved substring on current cursor: {:?}", buf);
 
     return Some(buf);
 }

@@ -40,6 +40,8 @@ pub mod fs {
         path::{Path, PathBuf},
     };
 
+    use tracing::error;
+
     pub fn find_all_css_files_in_dir(
         dir: impl AsRef<Path>,
         css_files: &mut Vec<PathBuf>,
@@ -58,7 +60,7 @@ pub mod fs {
                         css_files.push(path.to_path_buf());
                     }
                 }
-                Err(err) => eprintln!("[ERROR] failed to read a directory entry: {err}"),
+                Err(err) => error!(" failed to read a directory entry: {err}"),
             }
         }
 
