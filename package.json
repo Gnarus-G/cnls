@@ -1,26 +1,36 @@
 {
-  "name": "<name>",
-  "version": "<version>",
-  "description": "<desc>",
+  "name": "cnls",
+  "version": "0.1.0",
+  "description": "Class Name Language Server for web frontend projects.",
   "bin": {
-    "<name>": "./npm/run.js"
+    "cnls": "./npm/run.js"
   },
   "files": [
     "npm/**/*",
     "LICENSE",
     "README.md"
   ],
-  "homepage": "https://github.com/Gnarus-G/<name>#readme",
+  "homepage": "https://github.com/Gnarus-G/cnls#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gnarus-G/<name>"
+    "url": "https://github.com/Gnarus-G/cnls"
   },
   "scripts": {
     "postinstall": "node ./npm/install.js"
   },
-  "keywords": [],
+  "keywords": [
+    "lsp",
+    "language",
+    "server",
+    "css",
+    "className",
+    "autocomplete",
+    "go",
+    "to",
+    "definition"
+  ],
   "author": "Gnarus-G",
-  "license": "<license:probably:GPL-2.0>",
+  "license": "GPL-2.0",
   "dependencies": {
     "binary-install": "^1.1.0",
     "dotenv": "^16.3.1",
