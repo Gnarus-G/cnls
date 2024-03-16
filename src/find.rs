@@ -148,35 +148,54 @@ impl SrcCodeMeta {
 }
 
 fn find_class_name_in_str(s: &swc_ecma_ast::Str, cursor_position: BytePos) -> Option<String> {
-    let start_of_str = s.span.lo;
+    if s.is_empty() {
+        return None;
+    }
+
+    let start_of_str = s.span.lo.0 + 1; // not counting the quote;
     let contains_cursor = s.span.lo < cursor_position && cursor_position < s.span.hi;
     if !contains_cursor {
         return None;
     }
 
-    info!("found string around current cursor: {:?}", s.value);
+    info!(
+        "found class_name strings around current cursor: {:?} at bytepos {}",
+        s.value, start_of_str
+    );
 
-    let mut buf = String::new();
-    let mut cursor_is_on_substring = false;
+    let mut substrings = vec![]; // inclusive incluse ranges for slices of the ast::Str that are
+                                 // substrings
+    let mut start = None;
 
     for (offset, b) in s.value.as_bytes().iter().enumerate() {
         if b.is_ascii_whitespace() {
-            if cursor_is_on_substring {
-                break;
+            if start.is_some() && offset > 0 {
+                substrings.push((start.unwrap(), offset - 1)); // -1 to keep end inclusive
+                start = None;
             }
-            buf.clear();
         } else {
-            buf.push(*b as char);
-            let b_byte_pos = start_of_str.0 + offset as u32;
-            if b_byte_pos >= cursor_position.0 {
-                cursor_is_on_substring = true;
-            }
+            start.is_none().then(|| start = Some(offset));
         }
     }
 
-    info!("resolved substring on current cursor: {:?}", buf);
+    if let Some(start) = start {
+        substrings.push((start, s.value.len() - 1));
+    }
 
-    return Some(buf);
+    let class_name = substrings.into_iter().find_map(|(start, end)| {
+        let b_byte_start_pos = start_of_str + start as u32;
+        let b_byte_end_pos = start_of_str + end as u32;
+
+        if b_byte_start_pos <= cursor_position.0 && cursor_position.0 <= b_byte_end_pos {
+            let value = &s.value[start..=end];
+            info!("resolved substring on current cursor: {:?}", value);
+            return Some(value.to_string());
+        }
+
+        None
+    });
+
+    return class_name;
 }
 
 fn get_syntax_of_file(source_file: &Path) -> anyhow::Result<Syntax> {
@@ -200,4 +219,93 @@ fn get_syntax_of_file(source_file: &Path) -> anyhow::Result<Syntax> {
     };
 
     return Ok(syntax);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_class_name_in_str;
+    use swc_common::{BytePos, SyntaxContext};
+    use swc_ecma_ast::Str;
+
+    /// `offset` marks the byte position of the opening quote of the string `value`.
+    fn mock_str(value: &str, offset: u32) -> Str {
+        let raw = format!("{value:?}");
+        return Str {
+            span: swc_common::Span {
+                lo: BytePos(offset),
+                hi: BytePos(raw.len() as u32 + offset),
+                ctxt: SyntaxContext::default(),
+            },
+            value: value.into(),
+            raw: Some(raw.into()),
+        };
+    }
+
+    #[test]
+    fn it_finds_name_at_position() {
+        let s = mock_str("h-10 w-10 test", 2);
+        assert_eq!(
+            find_class_name_in_str(&s, BytePos(13)),
+            Some("test".to_owned())
+        );
+
+        let s = mock_str("h-10 w-10 test", 2);
+        assert_eq!(
+            find_class_name_in_str(&s, BytePos(8)),
+            Some("w-10".to_owned())
+        );
+
+        let s = mock_str(" h-10 w-10 test", 4);
+        assert_eq!(
+            find_class_name_in_str(&s, BytePos(6)),
+            Some("h-10".to_owned())
+        );
+
+        let s = mock_str(
+            r#" h-10 w-10 
+test"#,
+            8,
+        );
+        assert_eq!(
+            find_class_name_in_str(&s, BytePos(21)),
+            Some("test".to_owned())
+        );
+
+        let s = mock_str("short small   tall", 16);
+        assert_eq!(
+            find_class_name_in_str(&s, BytePos(21)),
+            Some("short".to_owned())
+        );
+    }
+
+    #[test]
+    fn it_finds_nothing_at_whitespaces() {
+        let s = mock_str("h-10 w-10 test", 1);
+        assert_eq!(find_class_name_in_str(&s, BytePos(11)), None);
+
+        let s = mock_str("h-10 w-10 ", 1);
+        assert_eq!(find_class_name_in_str(&s, BytePos(11)), None);
+
+        let s = mock_str("h-10 w-10   ", 1);
+        assert_eq!(find_class_name_in_str(&s, BytePos(11)), None);
+
+        let s = mock_str(" h-10 w-10 test", 3);
+        assert_eq!(find_class_name_in_str(&s, BytePos(4)), None);
+
+        let s = mock_str(
+            r#" h-10 w-10 
+                test"#,
+            7,
+        );
+        assert_eq!(find_class_name_in_str(&s, BytePos(19)), None);
+    }
+
+    #[test]
+    fn it_finds_nothing_at_empty_str() {
+        let s = mock_str("", 1);
+        assert_eq!(find_class_name_in_str(&s, BytePos(2)), None);
+
+        let s = mock_str("     ", 1);
+        assert_eq!(find_class_name_in_str(&s, BytePos(2)), None);
+    }
 }
