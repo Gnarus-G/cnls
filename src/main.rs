@@ -1,7 +1,6 @@
 mod classnames;
 mod source;
 
-use std::os::unix::fs::FileExt;
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
@@ -200,8 +199,24 @@ impl LanguageServer for Backend {
                                                         // 1-based
                     let byte_read_count = span.hi.0 - span.lo.0;
                     let mut buf = vec![0; byte_read_count as usize];
-                    file.read_exact_at(&mut buf, rule_start_pos.into())
-                        .with_context(|| format!("failed to read file in the span: {:?}", span))?;
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::FileExt;
+                        file.read_exact_at(&mut buf, rule_start_pos.into())
+                            .with_context(|| {
+                                format!("failed to read file in the span: {:?}", span)
+                            })?;
+                    }
+
+                    #[cfg(not(unix))]
+                    {
+                        use std::os::windows::fs::FileExt;
+                        file.seek_read(&mut buf, rule_start_pos.into())
+                            .with_context(|| {
+                                format!("failed to read file in the span: {:?}", span)
+                            })?;
+                    }
+
                     let s = String::from_utf8(buf).context("failed to read utf-8 string")?;
                     Ok(s)
                 });
