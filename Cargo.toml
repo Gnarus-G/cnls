@@ -6,6 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.81"
+colored = "2.1.0"
+swc_common = { version = "0.33.19", features = ["tty-emitter"] }
+swc_css = "0.157.38"
+swc_ecma_ast = "0.112.5"
+swc_ecma_parser = { version = "0.143.9", features = ["swc_ecma_visit"] }
+swc_ecma_visit = "0.98.6"
 tokio = { version = "1.36.0", features = [
   "macros",
   "rt-multi-thread",
