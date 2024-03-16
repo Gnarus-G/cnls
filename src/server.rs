@@ -161,6 +161,10 @@ impl LanguageServer for Backend {
         self.documents.insert(params.text_document.uri, code);
     }
 
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.documents.remove(&params.text_document.uri);
+    }
+
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
 
