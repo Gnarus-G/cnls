@@ -9,9 +9,10 @@ Features:
 
 - [x] Hover
 - [x] Go To Definition
-- [] Completions
+- [ ] Completions
 
 ## Demo
+https://github.com/Gnarus-G/cnls/assets/37311893/84af54c0-1695-492c-8081-4bd5d437c901
 
 ## Install
 
