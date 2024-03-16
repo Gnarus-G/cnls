@@ -1,13 +1,16 @@
 mod classnames;
 mod source;
 
+use std::mem;
+use std::ops::Deref;
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
 use classnames::ClassNamesCollector;
 use cnls::fs;
 use cnls::scope::Scope;
-use source::parse_classname_on_cursor;
+use dashmap::DashMap;
+use source::SrcCodeMeta;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -31,6 +34,7 @@ impl Default for Config {
 struct Backend {
     client: Client,
     config: tokio::sync::RwLock<Config>,
+    documents: DashMap<Url, String>,
 }
 
 impl Backend {
@@ -46,21 +50,32 @@ impl Backend {
 
     async fn find_class_name_on_cursor_at(
         &self,
-        current_path: &std::path::Path,
+        uri: &Url,
         position: tower_lsp::lsp_types::Position,
     ) -> Result<Option<(std::path::PathBuf, swc_common::Span)>> {
-        let classname_on_cursor = match parse_classname_on_cursor(
-            current_path,
-            position,
-            &self.config.read().await.scopes,
-        ) {
-            Ok(Some(cn)) => cn,
+        let current_doc = self
+            .documents
+            .get(uri)
+            .expect("failed to get document by uri");
+        let code = current_doc.deref();
+        let scopes = &self.config.read().await.scopes;
+        let path = std::path::PathBuf::from(uri.path());
+
+        let src = match SrcCodeMeta::build(path, code.to_owned(), position) {
+            Ok(s) => s,
+            Err(err) => {
+                eprintln!("{err:#}");
+                return Ok(None);
+            }
+        };
+
+        let classname_on_cursor = match src.get_classname_on_cursor(scopes) {
+            Ok(Some(strs)) => strs,
             Ok(None) => return Ok(None),
             Err(err) => {
                 self.client
                     .log_message(MessageType::ERROR, format!("{err:#}"))
                     .await;
-
                 return Ok(None);
             }
         };
@@ -124,6 +139,9 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 definition_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
@@ -135,6 +153,26 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        eprintln!(
+            "[DEBUG] current source code: {}",
+            params.text_document.uri.path()
+        );
+
+        let code = params.text_document.text;
+
+        self.documents.insert(params.text_document.uri, code);
+    }
+
+    async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+
+        eprintln!("[DEBUG] current source code: {}", uri.path());
+
+        let code = mem::take(&mut params.content_changes[0].text);
+        self.documents.insert(uri, code);
     }
 
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
@@ -174,21 +212,11 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let path = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .path();
-        let current_filepath = std::path::Path::new(path);
+        let uri = params.text_document_position_params.text_document.uri;
         let current_position = params.text_document_position_params.position;
 
-        eprintln!(
-            "[DEBUG] hover: current source code: {}",
-            current_filepath.display()
-        );
-
         if let Some((css_file, span)) = self
-            .find_class_name_on_cursor_at(current_filepath, current_position)
+            .find_class_name_on_cursor_at(&uri, current_position)
             .await?
         {
             let result = std::fs::File::open(&css_file)
@@ -248,22 +276,11 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let path = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .path();
-
-        let current_filepath = std::path::Path::new(path);
+        let uri = params.text_document_position_params.text_document.uri;
         let current_position = params.text_document_position_params.position;
 
-        eprintln!(
-            "[DEBUG] goto: current source code: {}",
-            current_filepath.display()
-        );
-
         if let Some((css_file, span)) = self
-            .find_class_name_on_cursor_at(current_filepath, current_position)
+            .find_class_name_on_cursor_at(&uri, current_position)
             .await?
         {
             fn get_location(
@@ -332,6 +349,7 @@ async fn main() {
     let (service, socket) = LspService::new(|client| Backend {
         client,
         config: tokio::sync::RwLock::new(Config::default()),
+        documents: DashMap::new(),
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;

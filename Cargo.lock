@@ -163,6 +163,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
+ "dashmap",
  "ignore",
  "swc_common",
  "swc_css",

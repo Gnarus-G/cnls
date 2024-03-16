@@ -24,3 +24,4 @@ tokio = { version = "1.36.0", features = [
 ] }
 tower-lsp = "0.20.0"
 ignore = "0.4"
+dashmap = "5.5.3"
