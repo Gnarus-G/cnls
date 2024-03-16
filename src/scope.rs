@@ -24,6 +24,7 @@ pub enum MatchType {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ScopeValue(MatchType, Str);
 
+/// Scope wherein to find class names
 #[derive(Debug, PartialEq, Clone)]
 pub struct Scope {
     variant: ScopeVariant,

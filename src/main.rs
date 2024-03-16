@@ -2,18 +2,36 @@ mod classnames;
 mod source;
 
 use std::os::unix::fs::FileExt;
+use std::str::FromStr;
 
 use anyhow::Context;
 use classnames::ClassNamesCollector;
 use cnls::fs;
+use cnls::scope::Scope;
 use source::parse_classname_on_cursor;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 #[derive(Debug)]
+struct Config {
+    scopes: Vec<Scope>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let default_scopes =
+            ["att:className,class", "fn:createElement"].map(|s| Scope::from_str(s).unwrap());
+        Self {
+            scopes: default_scopes.to_vec(),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct Backend {
     client: Client,
+    config: tokio::sync::RwLock<Config>,
 }
 
 impl Backend {
@@ -46,6 +64,42 @@ impl LanguageServer for Backend {
             .await;
     }
 
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let parsed_scopes_from_config = params.settings["cnls"]["scopes"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(cnls::scope::Scope::from_str)
+                .collect::<Vec<_>>()
+        });
+
+        match parsed_scopes_from_config {
+            Some(results) => {
+                let mut config = self.config.write().await;
+
+                config.scopes.clear();
+
+                for r in results {
+                    match r {
+                        Ok(scope) => config.scopes.push(scope),
+                        Err(err) => {
+                            self.client
+                                .log_message(MessageType::ERROR, format!("cnls.scopes: {err:#}"))
+                                .await
+                        }
+                    }
+                }
+            }
+            None => {
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        "cnls.scopes should be an array of strings",
+                    )
+                    .await;
+            }
+        };
+    }
+
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let path = params
             .text_document_position_params
@@ -63,6 +117,7 @@ impl LanguageServer for Backend {
         let classname_on_cursor = match parse_classname_on_cursor(
             current_filepath,
             params.text_document_position_params.position,
+            &self.config.read().await.scopes,
         ) {
             Ok(Some(cn)) => cn,
             Ok(None) => return Ok(None),
@@ -175,7 +230,10 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::new(|client| Backend {
+        client,
+        config: tokio::sync::RwLock::new(Config::default()),
+    });
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

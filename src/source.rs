@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context};
 use cnls::scope::{Scope, ScopeVariant};
 use std::path::Path;
-use std::str::FromStr;
 use swc_common::sync::Lrc;
 use swc_common::BytePos;
 use swc_common::{
@@ -15,6 +14,7 @@ use swc_ecma_visit::{Visit, VisitWith};
 pub fn parse_classname_on_cursor(
     path: &Path,
     position: tower_lsp::lsp_types::Position,
+    scopes: &[Scope],
 ) -> anyhow::Result<Option<String>> {
     let cm: Lrc<SourceMap> = Default::default();
     let error_handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
@@ -48,7 +48,7 @@ pub fn parse_classname_on_cursor(
 
     let mut finder = FindClassNames {
         cursor_position,
-        scopes: &["att:className"].map(|s| Scope::from_str(s).unwrap()),
+        scopes,
         is_in_scope: false,
         found_class_name_on_cursor: None,
     };
