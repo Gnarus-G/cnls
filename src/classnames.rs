@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use swc_common::errors::{ColorConfig, Handler};
 use swc_common::sync::Lrc;
-use swc_common::{FileName, SourceMap, Span};
+use swc_common::{FileName, SourceFile, SourceMap, Span};
 use swc_css::visit::{Visit, VisitWith};
 
 use swc_css::{ast::Rule, parser::parse_file};
@@ -30,14 +30,9 @@ impl ClassNamesCollector {
     }
 
     pub fn parse(css_file: PathBuf) -> anyhow::Result<Self> {
-        let code = std::fs::read_to_string(&css_file)?;
-
         let options = swc_css::parser::parser::ParserConfig::default();
 
-        let cm: Lrc<SourceMap> = Default::default();
-        let filename = FileName::Real(css_file);
-        let cssfile = cm.new_source_file(filename.clone(), code);
-
+        let (cssfile, cm) = css_source_file_from(css_file)?;
         let handler = Handler::with_tty_emitter(ColorConfig::Auto, true, false, Some(cm.clone()));
 
         let mut errors = vec![];
@@ -83,4 +78,13 @@ impl Visit for ClassNamesCollector {
                     }
                 });
     }
+}
+
+pub fn css_source_file_from(
+    css_file: PathBuf,
+) -> anyhow::Result<(Lrc<SourceFile>, Lrc<SourceMap>)> {
+    let code = std::fs::read_to_string(&css_file)?;
+    let cm: Lrc<SourceMap> = Default::default();
+    let filename = FileName::Real(css_file);
+    Ok((cm.new_source_file(filename, code), cm))
 }

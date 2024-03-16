@@ -4,7 +4,7 @@ mod source;
 use std::os::unix::fs::FileExt;
 use std::str::FromStr;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use classnames::ClassNamesCollector;
 use cnls::fs;
 use cnls::scope::Scope;
@@ -125,6 +125,7 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
+                definition_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
@@ -183,7 +184,7 @@ impl LanguageServer for Backend {
         let current_position = params.text_document_position_params.position;
 
         eprintln!(
-            "[DEBUG] current source code: {}",
+            "[DEBUG] hover: current source code: {}",
             current_filepath.display()
         );
 
@@ -223,6 +224,81 @@ impl LanguageServer for Backend {
                 })),
                 range: None,
             }));
+        }
+
+        Ok(None)
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let path = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .path();
+
+        let current_filepath = std::path::Path::new(path);
+        let current_position = params.text_document_position_params.position;
+
+        eprintln!(
+            "[DEBUG] goto: current source code: {}",
+            current_filepath.display()
+        );
+
+        if let Some((css_file, span)) = self
+            .find_class_name_on_cursor_at(current_filepath, current_position)
+            .await?
+        {
+            fn get_location(
+                css_file: std::path::PathBuf,
+                span: swc_common::Span,
+            ) -> anyhow::Result<Location> {
+                let uri = Url::from_file_path(&css_file).map_err(|_| {
+                    anyhow!(
+                        "failed to get uri from css file path: {}",
+                        css_file.display()
+                    )
+                })?;
+
+                let (cssfile, _) = classnames::css_source_file_from(css_file)
+                    .context("failed to build a SourceFile from a css file")?;
+
+                let start_ln_num = cssfile.lookup_line(span.lo).ok_or(anyhow!(
+                    "failed to get line number of the span start: {:?}",
+                    span
+                ))?;
+                let end_ln_num = cssfile.lookup_line(span.hi).ok_or(anyhow!(
+                    "failed to get line number of the span end: {:?}",
+                    span
+                ))?;
+                let range = Range::new(
+                    Position {
+                        line: start_ln_num as u32,
+                        character: (span.lo - cssfile.line_begin_pos(span.lo)).0,
+                    },
+                    Position {
+                        line: end_ln_num as u32,
+                        character: (span.hi - cssfile.line_begin_pos(span.hi)).0,
+                    },
+                );
+
+                Ok(Location::new(uri, range))
+            }
+
+            let location = match get_location(css_file, span) {
+                Ok(l) => l,
+                Err(err) => {
+                    self.client
+                        .log_message(MessageType::ERROR, format!("{err:#}"))
+                        .await;
+
+                    return Ok(None);
+                }
+            };
+
+            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
         }
 
         Ok(None)
