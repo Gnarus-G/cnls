@@ -44,6 +44,79 @@ impl Backend {
 
         Ok(paths)
     }
+
+    async fn find_class_name_on_cursor_at(
+        &self,
+        current_path: &std::path::Path,
+        position: tower_lsp::lsp_types::Position,
+    ) -> Result<Option<(std::path::PathBuf, swc_common::Span)>> {
+        let classname_on_cursor = match parse_classname_on_cursor(
+            current_path,
+            position,
+            &self.config.read().await.scopes,
+        ) {
+            Ok(Some(cn)) => cn,
+            Ok(None) => return Ok(None),
+            Err(err) => {
+                self.client
+                    .log_message(MessageType::ERROR, format!("{err:#}"))
+                    .await;
+
+                return Ok(None);
+            }
+        };
+
+        let Ok(Some(uris)) = self.workspace_uris().await else {
+            self.client
+                .log_message(MessageType::ERROR, "must define the root_path for cnls")
+                .await;
+
+            return Ok(None);
+        };
+
+        let mut css_files = vec![];
+
+        let root = uris[0].path();
+        if let Err(err) = fs::find_all_css_files_in_dir(root, &mut css_files) {
+            self.client
+                .log_message(MessageType::ERROR, format!("{err:#}"))
+                .await
+        };
+
+        let parsed = css_files
+            .into_iter()
+            .map(|file| (file.clone(), ClassNamesCollector::parse(file)))
+            .collect::<Vec<_>>();
+
+        for p in parsed {
+            let (css_file, p) = p;
+
+            match p {
+                Err(err) => {
+                    self.client
+                        .log_message(MessageType::ERROR, format!("{err:#}"))
+                        .await
+                }
+                Ok(collector) => {
+                    if let Some(class) = collector.find_class_name_by_value(&classname_on_cursor) {
+                        self.client
+                            .log_message(
+                                MessageType::INFO,
+                                format!(
+                                    "found class rule {classname_on_cursor:?} in css file {}",
+                                    css_file.display()
+                                ),
+                            )
+                            .await;
+
+                        return Ok(Some((css_file, class.span)));
+                    };
+                }
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -106,115 +179,50 @@ impl LanguageServer for Backend {
             .text_document
             .uri
             .path();
-
         let current_filepath = std::path::Path::new(path);
+        let current_position = params.text_document_position_params.position;
 
         eprintln!(
             "[DEBUG] current source code: {}",
             current_filepath.display()
         );
 
-        let classname_on_cursor = match parse_classname_on_cursor(
-            current_filepath,
-            params.text_document_position_params.position,
-            &self.config.read().await.scopes,
-        ) {
-            Ok(Some(cn)) => cn,
-            Ok(None) => return Ok(None),
-            Err(err) => {
-                self.client
-                    .log_message(MessageType::ERROR, format!("{err:#}"))
-                    .await;
+        if let Some((css_file, span)) = self
+            .find_class_name_on_cursor_at(current_filepath, current_position)
+            .await?
+        {
+            let result = std::fs::File::open(&css_file)
+                .context("failed to open css source file")
+                .with_context(|| format!("failed to open css source file: {}", css_file.display()))
+                .and_then(|file| {
+                    let rule_start_pos = span.lo.0 - 1; // swc's BytePos is
+                                                        // 1-based
+                    let byte_read_count = span.hi.0 - span.lo.0;
+                    let mut buf = vec![0; byte_read_count as usize];
+                    file.read_exact_at(&mut buf, rule_start_pos.into())
+                        .with_context(|| format!("failed to read file in the span: {:?}", span))?;
+                    let s = String::from_utf8(buf).context("failed to read utf-8 string")?;
+                    Ok(s)
+                });
 
-                return Ok(None);
-            }
-        };
-
-        let Ok(Some(uris)) = self.workspace_uris().await else {
-            self.client
-                .log_message(MessageType::ERROR, "must define the root_path for cnls")
-                .await;
-
-            return Ok(None);
-        };
-
-        let mut css_files = vec![];
-
-        let root = uris[0].path();
-        if let Err(err) = fs::find_all_css_files_in_dir(root, &mut css_files) {
-            self.client
-                .log_message(MessageType::ERROR, format!("{err:#}"))
-                .await
-        };
-
-        let parsed = css_files
-            .into_iter()
-            .map(|file| (file.clone(), ClassNamesCollector::parse(file)))
-            .collect::<Vec<_>>();
-
-        for p in parsed {
-            let (css_file, p) = p;
-
-            match p {
+            let source_rule = match result {
+                Ok(s) => s,
                 Err(err) => {
                     self.client
-                        .log_message(MessageType::ERROR, format!("{err:#}"))
-                        .await
+                        .log_message(MessageType::ERROR, format!("{err:#}",))
+                        .await;
+
+                    return Ok(None);
                 }
-                Ok(collector) => {
-                    if let Some(class) = collector.find_class_name_by_value(&classname_on_cursor) {
-                        self.client
-                            .log_message(
-                                MessageType::INFO,
-                                format!(
-                                    "found class rule {classname_on_cursor:?} in css file {}",
-                                    css_file.display()
-                                ),
-                            )
-                            .await;
+            };
 
-                        let result = std::fs::File::open(&css_file)
-                            .context("failed to open css source file")
-                            .with_context(|| {
-                                format!("failed to open css source file: {}", css_file.display())
-                            })
-                            .and_then(|file| {
-                                let rule_start_pos = class.span.lo.0 - 1; // swc's BytePos is
-                                                                          // 1-based
-                                let byte_read_count = class.span.hi.0 - class.span.lo.0;
-                                let mut buf = vec![0; byte_read_count as usize];
-                                file.read_exact_at(&mut buf, rule_start_pos.into())
-                                    .with_context(|| {
-                                        format!("failed to read file in the span: {:?}", class.span)
-                                    })?;
-                                let s = String::from_utf8(buf)
-                                    .context("failed to read utf-8 string")?;
-                                Ok(s)
-                            });
-
-                        let source_rule = match result {
-                            Ok(s) => s,
-                            Err(err) => {
-                                self.client
-                                    .log_message(MessageType::ERROR, format!("{err:#}",))
-                                    .await;
-
-                                return Ok(None);
-                            }
-                        };
-
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Scalar(MarkedString::LanguageString(
-                                LanguageString {
-                                    language: "css".to_string(),
-                                    value: source_rule,
-                                },
-                            )),
-                            range: None,
-                        }));
-                    };
-                }
-            }
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::LanguageString(LanguageString {
+                    language: "css".to_string(),
+                    value: source_rule,
+                })),
+                range: None,
+            }));
         }
 
         Ok(None)
