@@ -1,3 +1,6 @@
+[![crates.io](https://img.shields.io/crates/v/cnls.svg)](https://crates.io/crates/cnls)
+[![npm version](https://img.shields.io/npm/v/cnls.svg)](https://www.npmjs.com/package/cnls)
+
 # CNLS
 
 Class Name Language Server.
@@ -11,6 +14,14 @@ Features:
 ## Demo
 
 ## Install
+
+```sh
+cargo install cnls
+```
+
+```sh
+npm install -g cnls
+```
 
 ## Usage (nvim)
 

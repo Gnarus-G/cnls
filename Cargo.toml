@@ -1,7 +1,11 @@
 [package]
 name = "cnls"
+description = "Class Name Language Server for web frontend projects."
 version = "0.1.0"
 edition = "2021"
+homepage = "https://github.com/Gnarus-G/cnat"
+repository = "https://github.com/Gnarus-G/cnat"
+license = "GPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
