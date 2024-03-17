@@ -1,6 +1,6 @@
 {
   "name": "cnls",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Class Name Language Server for web frontend projects.",
   "bin": {
     "cnls": "./npm/run.js"
