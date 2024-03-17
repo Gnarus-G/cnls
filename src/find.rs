@@ -47,7 +47,9 @@ impl<'scopes> Visit for StringsWithClassNamesFinder<'scopes> {
             }
         }
 
-        n.visit_children_with(self);
+        if self.found_classname_on_cursor.is_none() {
+            n.visit_children_with(self);
+        }
     }
 
     fn visit_call_expr(&mut self, n: &swc_ecma_ast::CallExpr) {
@@ -61,7 +63,9 @@ impl<'scopes> Visit for StringsWithClassNamesFinder<'scopes> {
             }
         }
 
-        n.visit_children_with(self);
+        if self.found_classname_on_cursor.is_none() {
+            n.visit_children_with(self);
+        }
     }
 
     fn visit_key_value_prop(&mut self, n: &swc_ecma_ast::KeyValueProp) {
@@ -73,7 +77,9 @@ impl<'scopes> Visit for StringsWithClassNamesFinder<'scopes> {
             }
         }
 
-        n.visit_children_with(self);
+        if self.found_classname_on_cursor.is_none() {
+            n.visit_children_with(self);
+        }
     }
 
     fn visit_str(&mut self, n: &swc_ecma_ast::Str) {
@@ -81,7 +87,9 @@ impl<'scopes> Visit for StringsWithClassNamesFinder<'scopes> {
             return;
         }
 
-        self.found_classname_on_cursor = find_class_name_in_str(n, self.cursor_position)
+        if self.found_classname_on_cursor.is_none() {
+            self.found_classname_on_cursor = find_class_name_in_str(n, self.cursor_position)
+        }
     }
 }
 
